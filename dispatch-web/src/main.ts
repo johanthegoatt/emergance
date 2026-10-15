@@ -588,19 +588,19 @@ function renderMap(snapshot: DispatchSnapshot): void {
           return null;
         }
         return {
-          type: "Feature",
+          type: "Feature" as const,
           properties: {
             incidentId: incident.id,
             driverId: responder.deviceId
           },
           geometry: {
-              type: "LineString",
-              coordinates: [
-                clampToPhilippines(responder.lastLat, responder.lastLng),
-                clampToPhilippines(incident.lat, incident.lng)
-              ]
-            }
-          };
+            type: "LineString" as const,
+            coordinates: [
+              clampToPhilippines(responder.lastLat, responder.lastLng),
+              clampToPhilippines(incident.lat, incident.lng)
+            ]
+          }
+        };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
 

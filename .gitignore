@@ -13,3 +13,7 @@ android-app/local.properties
 *.db
 *.db-wal
 *.db-shm
+
+# Dispatch web
+dispatch-web/node_modules/
+dispatch-web/dist/
