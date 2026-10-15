@@ -53,9 +53,11 @@ class CryptoManager(context: Context) {
 
         val unsigned = envelope.toBuilder().clearSignature().build().toByteArray()
 
+        // Trust on first use only: a known device must sign with the key on
+        // file, or anyone could re-announce its id with a key of their own.
         val trusted = trustedDevice(envelope.senderDeviceId)
-        if (trusted != null && verifyWithKey(unsigned, signatureBytes, trusted.publicKey)) {
-            return true
+        if (trusted != null) {
+            return verifyWithKey(unsigned, signatureBytes, trusted.publicKey)
         }
 
         val announcedKeyBytes = envelope.keyId.toByteArray()
