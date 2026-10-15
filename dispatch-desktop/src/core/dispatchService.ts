@@ -188,7 +188,10 @@ export class DispatchService extends EventEmitter {
     if (trustedPublicKey !== null) {
       verified = await this.crypto.verifyEnvelope(envelope as never, trustedPublicKey);
     }
-    if (!verified && envelope.keyId.length > 0) {
+    // Trust on first use only. A device we already hold a key for must sign
+    // with that key; accepting a fresh self-announced key here would let any
+    // sender take over an existing driver's identity.
+    if (!verified && trustedPublicKey === null && envelope.keyId.length > 0) {
       const announcedPublicKey = Uint8Array.from(envelope.keyId);
       const autoTrusted = await this.crypto.verifyEnvelope(envelope as never, announcedPublicKey);
       if (autoTrusted) {
