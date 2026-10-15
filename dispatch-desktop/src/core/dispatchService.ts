@@ -317,7 +317,7 @@ export class DispatchService extends EventEmitter {
 
   private async tryAssignIncident(incidentId: string): Promise<void> {
     const incident = this.db.getIncident(incidentId);
-    if (!incident || incident.status === "ASSIGNED") {
+    if (!incident || incident.status === "ASSIGNED" || incident.status === "RESOLVED" || incident.status === "CANCELLED") {
       return;
     }
 

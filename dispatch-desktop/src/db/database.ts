@@ -14,6 +14,11 @@ export interface MessageLogInput {
   rawSize: number;
 }
 
+// Incidents the dispatcher has finished with. Nothing a driver sends late may
+// move them back into the assignment loop.
+const CLOSED_STATUSES = ["RESOLVED", "CANCELLED"];
+const CLOSED_SQL = "('RESOLVED', 'CANCELLED')";
+
 export class DispatchDatabase {
   private readonly db: DatabaseSync;
 
@@ -356,15 +361,28 @@ export class DispatchDatabase {
     return id;
   }
 
-  markAssignmentAck(assignmentId: string, ackAtMs: number): void {
+  // Returns false when the ACK came too late to count: the incident was closed
+  // or someone else already took it after this offer timed out.
+  markAssignmentAck(assignmentId: string, ackAtMs: number): boolean {
     this.db.exec("BEGIN;");
     try {
       const assignment = this.db
-        .prepare("SELECT incident_id, driver_id FROM assignments WHERE id = ?")
-        .get(assignmentId) as { incident_id: string; driver_id: string } | undefined;
-      if (!assignment) {
+        .prepare(
+          `SELECT a.incident_id, a.driver_id, a.result, i.status AS incident_status
+           FROM assignments a JOIN incidents i ON i.id = a.incident_id
+           WHERE a.id = ?`
+        )
+        .get(assignmentId) as
+        | { incident_id: string; driver_id: string; result: string; incident_status: string }
+        | undefined;
+      const stillWanted =
+        assignment !== undefined &&
+        !CLOSED_STATUSES.includes(assignment.incident_status) &&
+        (assignment.result === "PENDING" ||
+          (assignment.result === "TIMED_OUT" && assignment.incident_status === "UNASSIGNED_RETRY"));
+      if (!assignment || !stillWanted) {
         this.db.exec("COMMIT;");
-        return;
+        return false;
       }
 
       this.db
@@ -376,8 +394,19 @@ export class DispatchDatabase {
       this.db
         .prepare("UPDATE responders SET active_assignments = CASE WHEN active_assignments > 0 THEN active_assignments - 1 ELSE 0 END, status = 'BUSY' WHERE device_id = ?")
         .run(assignment.driver_id);
+      // Any other offer still out for this incident is void now.
+      const others = this.db
+        .prepare("SELECT id, driver_id FROM assignments WHERE incident_id = ? AND id != ? AND result = 'PENDING'")
+        .all(assignment.incident_id, assignmentId) as Array<{ id: string; driver_id: string }>;
+      for (const other of others) {
+        this.db.prepare("UPDATE assignments SET result = 'SUPERSEDED' WHERE id = ?").run(other.id);
+        this.db
+          .prepare("UPDATE responders SET active_assignments = CASE WHEN active_assignments > 0 THEN active_assignments - 1 ELSE 0 END WHERE device_id = ?")
+          .run(other.driver_id);
+      }
 
       this.db.exec("COMMIT;");
+      return true;
     } catch (error) {
       this.db.exec("ROLLBACK;");
       throw error;
@@ -388,9 +417,11 @@ export class DispatchDatabase {
     this.db.exec("BEGIN;");
     try {
       const assignment = this.db
-        .prepare("SELECT incident_id, driver_id FROM assignments WHERE id = ?")
-        .get(assignmentId) as { incident_id: string; driver_id: string } | undefined;
-      if (!assignment) {
+        .prepare("SELECT incident_id, driver_id, result FROM assignments WHERE id = ?")
+        .get(assignmentId) as { incident_id: string; driver_id: string; result: string } | undefined;
+      // Only a pending offer can be turned down; a late REJECT must not reopen
+      // an incident that timed out and went to someone else meanwhile.
+      if (!assignment || assignment.result !== "PENDING") {
         this.db.exec("COMMIT;");
         return;
       }
@@ -399,7 +430,7 @@ export class DispatchDatabase {
         .prepare("UPDATE assignments SET result = 'REJECTED', reason = ? WHERE id = ?")
         .run(reason, assignmentId);
       this.db
-        .prepare("UPDATE incidents SET status = 'UNASSIGNED_RETRY', updated_at_ms = ? WHERE id = ?")
+        .prepare(`UPDATE incidents SET status = 'UNASSIGNED_RETRY', updated_at_ms = ? WHERE id = ? AND status NOT IN ${CLOSED_SQL}`)
         .run(Date.now(), assignment.incident_id);
       this.db
         .prepare("UPDATE responders SET active_assignments = CASE WHEN active_assignments > 0 THEN active_assignments - 1 ELSE 0 END, status = 'AVAILABLE' WHERE device_id = ?")
@@ -430,7 +461,7 @@ export class DispatchDatabase {
           .prepare("UPDATE assignments SET result = 'TIMED_OUT', reason = 'ACK_TIMEOUT' WHERE id = ?")
           .run(row.id);
         this.db
-          .prepare("UPDATE incidents SET status = 'UNASSIGNED_RETRY', updated_at_ms = ? WHERE id = ?")
+          .prepare(`UPDATE incidents SET status = 'UNASSIGNED_RETRY', updated_at_ms = ? WHERE id = ? AND status NOT IN ${CLOSED_SQL}`)
           .run(nowMs, row.incident_id);
         this.db
           .prepare("UPDATE responders SET active_assignments = CASE WHEN active_assignments > 0 THEN active_assignments - 1 ELSE 0 END, status = 'AVAILABLE' WHERE device_id = ?")
