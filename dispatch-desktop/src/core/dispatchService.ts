@@ -30,6 +30,9 @@ export interface DispatchServiceOptions {
 const PHILIPPINES_BOUNDS: [number, number, number, number] = [112.1661, 4.382696, 127.0742, 21.53021];
 const MAX_ORIGIN_PINGS = 64;
 const ORIGIN_TTL_MS = 24 * 60 * 60 * 1_000;
+// A driver who turned an incident down (or let the offer lapse) is not asked
+// about it again for this long, so the next-nearest driver gets a turn.
+const DECLINE_COOLDOWN_MS = 120_000;
 
 function isFiniteCoordinate(lat: number, lng: number): boolean {
   return Number.isFinite(lat) && Number.isFinite(lng);
@@ -323,7 +326,9 @@ export class DispatchService extends EventEmitter {
 
     const now = Date.now();
     const candidates = this.db.getAvailableResponders(now);
-    const choice = this.assignmentEngine.chooseDriver(incident, candidates);
+    const choice = this.assignmentEngine.chooseDriver(incident, candidates, {
+      exclude: this.db.declinedDriverIds(incidentId, now - DECLINE_COOLDOWN_MS)
+    });
 
     if (!choice) {
       this.db.updateIncidentStatus({ incidentId, status: "UNASSIGNED_RETRY", reason: "NO_AVAILABLE_DRIVER" });

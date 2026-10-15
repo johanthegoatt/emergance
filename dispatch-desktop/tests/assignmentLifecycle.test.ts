@@ -86,4 +86,16 @@ describe("assignment lifecycle", () => {
     expect(db.getIncident("inc")?.status).toBe("CANCELLED");
     db.close();
   });
+
+  it("remembers who declined an incident", () => {
+    const db = freshDb();
+    const since = Date.now() - 1_000;
+    const rejected = db.createAssignment("inc", "driver-a", Date.now() + 15_000);
+    db.markAssignmentRejected(rejected, "BUSY");
+    db.createAssignment("inc", "driver-b", Date.now() - 1);
+    db.expireTimedOutAssignments(Date.now());
+    db.createAssignment("inc", "driver-c", Date.now() + 15_000);
+    expect(db.declinedDriverIds("inc", since).sort()).toEqual(["driver-a", "driver-b"]);
+    db.close();
+  });
 });

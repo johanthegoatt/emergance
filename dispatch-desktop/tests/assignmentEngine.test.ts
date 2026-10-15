@@ -69,4 +69,28 @@ describe("AssignmentEngine", () => {
 
     expect(selected).toBeNull();
   });
+
+  it("skips drivers excluded for this incident", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-22T00:00:00Z"));
+    const incident: Incident = {
+      id: "i1",
+      createdAtMs: Date.now(),
+      lat: 40.0,
+      lng: -74.0,
+      accuracyM: 10,
+      status: "RECEIVED",
+      priority: 1,
+      sourceDeviceId: "s1",
+      assignedDriverId: null,
+      assignedAtMs: null,
+      resolvedAtMs: null
+    };
+    const near = driver({ deviceId: "near", lastLat: 40.0001, lastLng: -74.0 });
+    const far = driver({ deviceId: "far", lastLat: 40.05, lastLng: -74.0 });
+    expect(engine.chooseDriver(incident, [near, far])?.driver.deviceId).toBe("near");
+    expect(engine.chooseDriver(incident, [near, far], { exclude: ["near"] })?.driver.deviceId).toBe("far");
+    expect(engine.chooseDriver(incident, [near], { exclude: ["near"] })).toBeNull();
+    vi.useRealTimers();
+  });
 });

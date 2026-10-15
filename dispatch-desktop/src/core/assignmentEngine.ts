@@ -2,9 +2,15 @@ import { DriverCandidate, DriverState, Incident } from "./types";
 import { haversineMeters } from "./haversine";
 
 export class AssignmentEngine {
-  chooseDriver(incident: Incident, candidates: DriverState[]): DriverCandidate | null {
+  chooseDriver(
+    incident: Incident,
+    candidates: DriverState[],
+    options: { exclude?: Iterable<string> } = {}
+  ): DriverCandidate | null {
+    const excluded = new Set(options.exclude ?? []);
     const eligible = candidates.filter((driver) => {
       return (
+        !excluded.has(driver.deviceId) &&
         driver.status === "AVAILABLE" &&
         driver.lastFixAtMs >= Date.now() - 20_000 &&
         driver.batteryPct >= 15

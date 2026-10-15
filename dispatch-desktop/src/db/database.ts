@@ -476,6 +476,17 @@ export class DispatchDatabase {
     return rows.map((row) => ({ assignmentId: row.id, incidentId: row.incident_id }));
   }
 
+  // Drivers who turned this incident down or let the offer lapse since sinceMs.
+  declinedDriverIds(incidentId: string, sinceMs: number): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT driver_id FROM assignments
+         WHERE incident_id = ? AND result IN ('REJECTED', 'TIMED_OUT') AND offer_sent_at_ms >= ?`
+      )
+      .all(incidentId, sinceMs) as Array<{ driver_id: string }>;
+    return rows.map((row) => String(row.driver_id));
+  }
+
   listRetryIncidents(nowMs: number): Incident[] {
     const rows = this.db
       .prepare(
